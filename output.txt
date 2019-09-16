@@ -1,17 +1,9 @@
-pressure at z_0 is 101324.9980779254 Pa
-pressure at 10m is 101204.9279855346 Pa
-potential temperature at z0 is 262.65932682907516 K
-potential temperature at 10m is 262.6985835498042 K
-potential temperature ratio at 10m is 0.9998505636376163
-mass mixing at z0 is 0.0018358326435937281
-mass mixing at 10m is 0.001830787101001029
-specific humidity at z0 is 0.0018324685380332485
+Input ice concentration: pressure at z_0 is 101324.9980779254
+pressure at 10 is 101204.9279855346
+theta at z_0 is 262.65932682907516
+theta at 10 is 262.6985835498042
+specific humidity at z_0 is 0.0018324685380332485
 specific humidity at 10m is 0.0018274414447760983
-specific humidity ratio at 10m is 1.002750891565648
-s_1 is 0.0001492929107632077, s_2 is -3.0430392919329435e-06
-gamma_c is 1.7479111111111116e-05
-DEFAULT C_D_A: 0.00131
-Iterated C_D_A: 0.0015999747244718988
 Atmospheric momentum:
 min 0.0002622871497183926
  max 0.002342734007071754

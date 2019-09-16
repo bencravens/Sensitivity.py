@@ -57,11 +57,11 @@ class ice:
 
     #Now the form drag coefficient from sails
     def C_dar_fun(self,H_s,D_s,z_0):
-        return 0.5*c_ra*S_c_fun(D_s,H_s)*(H_s/D_s)*A*pow((np.log(H_s/z_0)/np.log(10/z_0)),2.0)
+        return 0.5*c_ra*self.S_c_fun(D_s,H_s)*(H_s/D_s)*A*pow((np.log(H_s/z_0)/np.log(10/z_0)),2.0)
 
     #Form drag coefficient from keels
     def C_dwr_fun(self,H_k,D_k,z_0):
-        return 0.5*c_kw*S_c_fun(D_k,H_k)*(H_k/D_k)*A*pow((np.log(H_k/z_0)/np.log(10/z_0)),2.0)
+        return 0.5*c_kw*self.S_c_fun(D_k,H_k)*(H_k/D_k)*A*pow((np.log(H_k/z_0)/np.log(10/z_0)),2.0)
 
     #Skin drag coefficient for atmosphere
     def C_das_fun(self,H_s,D_s):
@@ -85,7 +85,7 @@ class ice:
     def F_ocean(self,C_d):
         # 1 J/s = 1 W so no unit conversion needed...
         #need momentum
-        mag_tau = np.abs(tau_ocean_fun(C_d))
+        mag_tau = np.abs(self.tau_ocean_fun(C_d))
         return -C_d*cp*rho_w*delta_T*math.sqrt(mag_tau/rho_w)
 
     #sensible heat transfer(atmospheric)
@@ -98,7 +98,40 @@ class ice:
     def F_atmosphere_total(self,c):
         return F_atmosphere_sensible(c) + F_atmosphere_latent(c)
   
-    
+    def stability_fun(self,c_d, c_s, c_l):
+        #given transfer coefficients calculate stability
+        return (self.gamma_c/(c_d**2))*(c_s*self.s_1 + c_l*self.s_2)
+
+    #get compact form of stability
+    def chi_fun(self, stability):
+        return (1 - 16*stability)**(0.25)
+
+    #get psi's (integrated flux profiles) from stability 
+    def psi_fun(self, stability, chi):
+        if stability<0:
+            psi_m = 2*np.log(0.5*(1 + chi)) + np.log(0.5*(1 + chi**2)) - 2*np.arctan(chi) + (math.pi/2)
+            psi_s = 2*np.log(0.5*(1 + chi**2)) 
+        else:
+            psi_m = -(0.7*stability + 0.75*(stability - 14.3)*np.exp(-0.35*stability) + 10.7)
+            psi_s = psi_m        
+        return psi_m, psi_s 
+
+    #iterate the drag coefficients 5 times. This is the overall function called 
+    #when wanting to calculate drag coefficients.  
+    def iterdrag(self, c_d):
+        c_d = c_d
+        c_s = c_d
+        c_l = c_d
+        for i in range(5):
+            stability = self.stability_fun(c_d,c_s,c_l)
+            chi = self.chi_fun(stability)
+            psi_m, psi_s = self.psi_fun(stability,chi)
+            #now updating coefficients based on psi
+            c_d = c_d/(1 + (c_d/kappa)*(my_lambda - psi_m))
+            c_s = c_s/(1 + (c_s/kappa)*(my_lambda - psi_s))
+            c_l = c_s
+        return c_d, c_s, c_l
+        
     def __init__(self,A,H_s,D_s,z_0a,z_0w,T_z0):
         #ice concentration
         self.A = A
@@ -119,18 +152,33 @@ class ice:
         #pressure at 10m
         self.P_10 = self.pressure(10)
         #potential temperature at roughness length
-        self.theta_z0 = self.potential_temp(P_z0,T_z0)
+        self.theta_z0 = self.potential_temp(self.P_z0,self.T_z0)
         #potential temperature at 10m
-        self.theta_10 = self.potential_temp(P_10,T_10)
+        self.theta_10 = self.potential_temp(self.P_10,self.T_10)
         #specific humidity
-        self.h_s_z0 = self.specific_humidity(P_z0,T_z0)
-        self.h_s_10 = self.specific_humidity(P_10,T_10)
+        self.h_s_z0 = self.specific_humidity(self.P_z0,self.T_z0)
+        self.h_s_10 = self.specific_humidity(self.P_10,self.T_10)
         #Height of keels
         self.H_k = self.H_k_fun(self.H_s)
         #Distance between keels
         self.D_k = self.D_k_fun(self.D_s)
-
+        #Constants that go into stability calculation
+        self.gamma_c = (kappa*g*self.z_0a)/(u_a**2)
+        self.s_1 = (self.theta_10 - self.theta_z0)/(self.theta_z0*(1 + 0.606*self.h_s_z0))
+        self.s_2 = (self.h_s_10 - self.h_s_z0)/(1/0.606 + self.h_s_z0) 
  
+        #VECTORIZE FUNCTIONS SO THAT WE CAN PASS MATRICES TO THEM
+        self.stability_fun = np.vectorize(self.stability_fun)
+        self.chi_fun = np.vectorize(self.chi_fun)
+        self.psi_fun = np.vectorize(self.psi_fun)
+        self.iterdrag = np.vectorize(self.iterdrag)
+        
+        #making default drag coefficients
+        C_d_atmosphere,C_s_atmosphere,C_l_atmosphere = self.iterdrag(C_d_a_init)
+        #now storing them in a nice string format to put in plot titles
+        self.C_d_atmosphere_default = '{:.2e}'.format(C_d_atmosphere)
+        self.C_s_atmosphere_default = '{:.2e}'.format(C_s_atmosphere)
+
     def plot_3d(self):
         #function to plot 3d surface of dependence of drag coefficient on height of sails and distance between sails
         
@@ -139,10 +187,10 @@ class ice:
         x_k,y_k = np.meshgrid(self.H_k,self.D_k)
         
         #calculating coefficients (form and skin)
-        totalsailform = C_dar_fun(x_s,y_s,self.z_0a)
-        totalkeelform = C_dwr_fun(x_k,y_k,self.z_0w)
-        totalsailskin = C_das_fun(x_s,y_s)
-        totalkeelskin = C_dws_fun(x_k,y_k)
+        totalsailform = self.C_dar_fun(x_s,y_s,self.z_0a)
+        totalkeelform = self.C_dwr_fun(x_k,y_k,self.z_0w)
+        totalsailskin = self.C_das_fun(x_s,y_s)
+        totalkeelskin = self.C_dws_fun(x_k,y_k)
         totalkeel = totalkeelform + totalkeelskin
         totalsail = totalsailform + totalsailskin
 
@@ -164,13 +212,13 @@ class ice:
         ###PLOTTING ATMOSPHERIC MOMENTUM CO-EFF### 
         #printing min, max, default
         print("Atmospheric momentum:")
-        print("min {}\n max {}\n default {}".format(np.min(c_d_a),np.max(c_d_a),C_d_atmosphere_default))
+        print("min {}\n max {}\n default {}".format(np.min(c_d_a),np.max(c_d_a),self.C_d_atmosphere_default))
         cp = plt.contourf(x_s,y_s,c_d_a,levels=np.linspace(0,np.max(c_d_a),100))
         plt.colorbar(cp)
         cp.set_clim(0,np.max(c_d_a))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
-        plt.title("Atmospheric drag coeff. {} default. {} aice".format(C_d_atmosphere_default,A))
+        plt.title("Atmospheric drag coeff. {} default. {} aice".format(self.C_d_atmosphere_default,A))
         plt.savefig('atmosphere_momentum_3d_{}.png'.format(A))
         plt.close('all')
         
@@ -202,13 +250,13 @@ class ice:
         
         ###PLOTTING ATMOSPHERIC HEAT TRANSFER###
         print("Atmospheric heat:")
-        print("min {}\n max {}\n default {}".format(np.min(c_s_a),np.max(c_s_a),C_s_atmosphere_default))
+        print("min {}\n max {}\n default {}".format(np.min(c_s_a),np.max(c_s_a),self.C_s_atmosphere_default))
         cp = plt.contourf(x_s,y_s,c_s_a,levels=np.linspace(0,np.max(np.abs(c_s_a))),cmap='inferno')
         plt.colorbar(cp)
         cp.set_clim(0,np.max(c_s_a))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
-        plt.title("Atmospheric heat transfer coeff. {} default. {} aice".format(C_s_atmosphere_default,A))
+        plt.title("Atmospheric heat transfer coeff. {} default. {} aice".format(self.C_s_atmosphere_default,A))
         plt.savefig('atmosphere_heat_3d_{}.png'.format(A))
         plt.close('all')
     
@@ -220,68 +268,8 @@ class ice:
         print("specific humidity at z_0 is {}".format(self.h_s_z0))
         print("specific humidity at 10m is {}".format(self.h_s_10))
 
-#now calculating stability
-#gamma = (gamma_c/(C_d**2))*(s1*C_s + s2*C_l)
-#constant out the front
-gamma_c = (kappa*g*z_0a)/(u_a**2)
-s_1 = (theta_10 - theta_z0)/(theta_z0*(1 + 0.606*h_s_z0))
-s_2 = (h_s_10 - h_s_z0)/(1/0.606 + h_s_z0)
-print("s_1 is {}, s_2 is {}".format(s_1,s_2))
-print("gamma_c is {}".format(gamma_c))
-
-def stability_fun(c_d, c_s, c_l):
-    #given transfer coefficients calculate stability
-    return (gamma_c/(c_d**2))*(c_s*s_1 + c_l*s_2)
-
-#get compact form of stability
-def chi_fun(stability):
-    return (1 - 16*stability)**(0.25)
-
-#get psi's (integrated flux profiles) from stability 
-def psi_fun(stability, chi):
-    if stability<0:
-        psi_m = 2*np.log(0.5*(1 + chi)) + np.log(0.5*(1 + chi**2)) - 2*np.arctan(chi) + (math.pi/2)
-        psi_s = 2*np.log(0.5*(1 + chi**2)) 
-    else:
-        psi_m = -(0.7*stability + 0.75*(stability - 14.3)*np.exp(-0.35*stability) + 10.7)
-        psi_s = psi_m        
-    return psi_m, psi_s 
-
-def iterdrag(c_d):
-    c_d = c_d
-    c_s = c_d
-    c_l = c_d
-    for i in range(5):
-        stability = stability_fun(c_d,c_s,c_l)
-        chi = chi_fun(stability)
-        psi_m, psi_s = psi_fun(stability,chi)
-        #now updating coefficients based on psi
-        c_d = c_d/(1 + (c_d/kappa)*(my_lambda - psi_m))
-        c_s = c_s/(1 + (c_s/kappa)*(my_lambda - psi_s))
-        c_l = c_s
-    return c_d, c_s, c_l
-
-#DEFAULT EXCHANGE COEFFICIENTS
-C_d_ocean_momentum = 0.006 
-C_d_ocean_heat = 0.006
-C_d_a_init = 1.31e-3
-print("DEFAULT C_D_A: {}".format(C_d_a_init))
-C_d_atmosphere,C_s_atmosphere,C_l_atmosphere = iterdrag(C_d_a_init)
-print("Iterated C_D_A: {}".format(C_d_atmosphere))
-
-#convert to nice string to put in plot title
-C_d_atmosphere_default = '{:.2e}'.format(C_d_atmosphere)
-C_s_atmosphere_default = '{:.2e}'.format(C_s_atmosphere)
-
-#vectorizing all functions
-tau_atmosphere_fun = np.vectorize(tau_atmosphere_fun)
-tau_ocean_fun = np.vectorize(tau_ocean_fun)
-F_ocean = np.vectorize(F_ocean)
-psi_fun = np.vectorize(psi_fun)
-iterdrag = np.vectorize(iterdrag)
-
 my_H_s = np.linspace(0.3*0.9,4.0*1.1,50)  
 my_D_s = np.linspace(30.0*0.9,500.0*1.1,50)
-plot_3d(my_H_s,my_D_s)
 testice = ice(0.5,my_H_s,my_D_s,0.16e-3,0.0061,263.65)
 testice.display()
+testice.plot_3d()

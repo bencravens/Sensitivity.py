@@ -75,3 +75,8 @@ yotta = 2260e3
 z_0a = 0.16e-3
 z_0w = 0.0061
 my_lambda = np.log(z_0a/10)
+
+C_d_ocean_momentum = 0.006 
+C_d_ocean_heat = 0.006
+C_d_a_init = 1.31e-3
+
