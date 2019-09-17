@@ -1,4 +1,5 @@
 import math
+from math import isclose
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -104,11 +105,20 @@ class ice:
 
     #get compact form of stability
     def chi_fun(self, stability):
-        return (1 - 16*stability)**(0.25)
+        #STABILITY MAGNITUDE NEEDS TO BE LESS THAN TEN
+        print(stability)
+        assert abs(stability)<10, "error: STABILITY IS TOO BIG!"
+        chi = (1 - 16*stability)**(0.25) 
+        #chi needs to be >= 1.
+        print(chi)
+        assert chi>=1, "error: chi is too small"
+        return chi
 
     #get psi's (integrated flux profiles) from stability 
-    def psi_fun(self, stability, chi):
+    def psi_fun(self, stability):
+        assert abs(stability)<10, "error: STABILITY TOO BIG"
         if stability<0:
+            chi = self.chi_fun(stability)
             psi_m = 2*np.log(0.5*(1 + chi)) + np.log(0.5*(1 + chi**2)) - 2*np.arctan(chi) + (math.pi/2)
             psi_s = 2*np.log(0.5*(1 + chi**2)) 
         else:
@@ -124,8 +134,7 @@ class ice:
         c_l = c_d
         for i in range(5):
             stability = self.stability_fun(c_d,c_s,c_l)
-            chi = self.chi_fun(stability)
-            psi_m, psi_s = self.psi_fun(stability,chi)
+            psi_m, psi_s = self.psi_fun(stability)
             #now updating coefficients based on psi
             c_d = c_d/(1 + (c_d/kappa)*(my_lambda - psi_m))
             c_s = c_s/(1 + (c_s/kappa)*(my_lambda - psi_s))
@@ -179,43 +188,30 @@ class ice:
         self.C_d_atmosphere_default = '{:.2e}'.format(C_d_atmosphere)
         self.C_s_atmosphere_default = '{:.2e}'.format(C_s_atmosphere)
 
+        #making 3d mesh for plotting
+        self.x_s,self.y_s = np.meshgrid(self.H_s,self.D_s)
+        self.x_k,self.y_k = np.meshgrid(self.H_k,self.D_k)
+        
+        #making scalar fields for 3d plotting
+        #first momentum transfer coefficient
+        self.momentum_sail = self.C_dar_fun(self.x_s,self.y_s,self.z_0a) + self.C_das_fun(self.x_s,self.y_s)
+        self.momentum_keel = self.C_dwr_fun(self.x_k,self.y_k,self.z_0w) + self.C_dws_fun(self.x_k,self.y_k)
+        self.c_d_a, foo, bar = self.iterdrag(self.momentum_sail) 
+
+        #now heat transfer coefficient
+        #roughness length for heat transfer is 0.2* (source: UM documentation)
+        self.heat_sail = self.C_dar_fun(self.x_s,self.y_s,0.2*self.z_0a) + self.C_das_fun(self.x_s,self.y_s)
+        self.heat_keel = self.C_dwr_fun(self.x_k,self.y_k,0.2*self.z_0w) + self.C_dws_fun(self.x_k,self.y_k)
+        foo, self.c_s_a, bar = self.iterdrag(self.heat_sail) 
+ 
     def plot_3d(self):
         #function to plot 3d surface of dependence of drag coefficient on height of sails and distance between sails
-        
-        #making 3d mesh
-        x_s,y_s = np.meshgrid(self.H_s,self.D_s)
-        x_k,y_k = np.meshgrid(self.H_k,self.D_k)
-        
-        #calculating coefficients (form and skin)
-        totalsailform = self.C_dar_fun(x_s,y_s,self.z_0a)
-        totalkeelform = self.C_dwr_fun(x_k,y_k,self.z_0w)
-        totalsailskin = self.C_das_fun(x_s,y_s)
-        totalkeelskin = self.C_dws_fun(x_k,y_k)
-        totalkeel = totalkeelform + totalkeelskin
-        totalsail = totalsailform + totalsailskin
-
-        c_d_a, c_s_a, c_l_a = self.iterdrag(totalsail) 
-
-        #now for heat transfer, z_0 needs to be smaller (as detailed in um documentation part 8.6)
-        z_0a = self.z_0a*0.2
-        z_0w = self.z_0w*0.2
-        #iterating
-        totalsailform_heat = self.C_dar_fun(x_s,y_s,z_0a)
-        totalkeelform_heat = self.C_dwr_fun(x_k,y_k,z_0w)
-        totalsailskin_heat = self.C_das_fun(x_s,y_s)
-        totalkeelskin_heat = self.C_dws_fun(x_k,y_k)
-        totalkeel_heat = totalkeelform_heat + totalkeelskin_heat
-        totalsail_heat = totalsailform_heat + totalsailskin_heat
-        
-        foo, c_s_a, bar = self.iterdrag(totalsail_heat) 
-
-        ###PLOTTING ATMOSPHERIC MOMENTUM CO-EFF### 
         #printing min, max, default
         print("Atmospheric momentum:")
-        print("min {}\n max {}\n default {}".format(np.min(c_d_a),np.max(c_d_a),self.C_d_atmosphere_default))
-        cp = plt.contourf(x_s,y_s,c_d_a,levels=np.linspace(0,np.max(c_d_a),100))
+        print("min {}\n max {}\n default {}".format(np.min(self.c_d_a),np.max(self.c_d_a),self.C_d_atmosphere_default))
+        cp = plt.contourf(self.x_s,self.y_s,self.c_d_a,levels=np.linspace(0,np.max(self.c_d_a),100))
         plt.colorbar(cp)
-        cp.set_clim(0,np.max(c_d_a))
+        cp.set_clim(0,np.max(self.c_d_a))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
         plt.title("Atmospheric drag coeff. {} default. {} aice".format(self.C_d_atmosphere_default,A))
@@ -223,10 +219,10 @@ class ice:
         plt.close('all')
         
         ###PLOTTING OCEANIC MOMENTUM###
-        momentum_arg = totalkeel
+        momentum_arg = self.momentum_keel 
         print("Oceanic momentum:")
         print("min {}\n max {}\n default {}".format(np.min(momentum_arg),np.max(momentum_arg),0.006))
-        cp = plt.contourf(x_k,y_k,momentum_arg,levels=np.linspace(0,np.max(momentum_arg),100))
+        cp = plt.contourf(self.x_k,self.y_k,momentum_arg,levels=np.linspace(0,np.max(momentum_arg),100))
         plt.colorbar(cp)
         cp.set_clim(0,np.max(momentum_arg))
         plt.xlabel("Height of keels(m)")
@@ -236,10 +232,10 @@ class ice:
         plt.close('all')
 
         ###OCEANIC HEAT TRANSFER
-        heat_arg = totalkeel_heat
+        heat_arg = self.heat_keel 
         print("Oceanic heat:")
         print("min {}\n max {}\n default {}".format(np.min(heat_arg),np.max(heat_arg),0.006))
-        cp = plt.contourf(x_k,y_k,totalkeel,levels=np.linspace(0,np.max(heat_arg),100),cmap='inferno')
+        cp = plt.contourf(self.x_k,self.y_k,heat_arg,levels=np.linspace(0,np.max(heat_arg),100),cmap='inferno')
         plt.colorbar(cp)
         cp.set_clim(0,np.max(heat_arg))
         plt.xlabel("Height of keels(m)")
@@ -250,10 +246,10 @@ class ice:
         
         ###PLOTTING ATMOSPHERIC HEAT TRANSFER###
         print("Atmospheric heat:")
-        print("min {}\n max {}\n default {}".format(np.min(c_s_a),np.max(c_s_a),self.C_s_atmosphere_default))
-        cp = plt.contourf(x_s,y_s,c_s_a,levels=np.linspace(0,np.max(np.abs(c_s_a))),cmap='inferno')
+        print("min {}\n max {}\n default {}".format(np.min(self.c_s_a),np.max(self.c_s_a),self.C_s_atmosphere_default))
+        cp = plt.contourf(self.x_s,self.y_s,self.c_s_a,levels=np.linspace(0,np.max(np.abs(self.c_s_a))),cmap='inferno')
         plt.colorbar(cp)
-        cp.set_clim(0,np.max(c_s_a))
+        cp.set_clim(0,np.max(self.c_s_a))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
         plt.title("Atmospheric heat transfer coeff. {} default. {} aice".format(self.C_s_atmosphere_default,A))
@@ -268,8 +264,33 @@ class ice:
         print("specific humidity at z_0 is {}".format(self.h_s_z0))
         print("specific humidity at 10m is {}".format(self.h_s_10))
 
-my_H_s = np.linspace(0.3*0.9,4.0*1.1,50)  
-my_D_s = np.linspace(30.0*0.9,500.0*1.1,50)
-testice = ice(0.5,my_H_s,my_D_s,0.16e-3,0.0061,263.65)
+    def testfun(self):
+        #this function tests the calculated properties of the sea ice to check that they are realistic...
+        #basing these tests on expected values for these parameters as laid out in Tsamados paper (cited in report...)
+        print("Beginning tests.")
+        assert self.A>0, "ERROR. A>0 must hold. (There must be some ice)..."
+        assert np.min(self.H_s)>0,"ERROR. Sails must have a height..."
+        assert np.max(self.H_s)<5,"ERROR. Sails are too tall!"        
+        assert np.min(self.D_s)>20,"ERROR. Sails are too close together!"
+        assert np.max(self.D_s)<550,"ERROR. Sails are too far apart!"
+        assert 1e-5 < self.z_0a < 1e-2,"ERROR. Atmospheric roughness length is too large/small"
+        assert 1e-5 < self.z_0w < 1e-2,"ERROR. Oceanic roughness length is too large/small"
+        assert self.T_10<self.T_z0, "ERROR.. temperature should decrease with altitude. Chech T_10 and T_z0"
+        assert self.P_10<self.P_z0, "ERROR.. pressure should decrease with altitude"
+        assert self.P_z0>1.013e5, "ERROR. Pressure at rougnness length is too low. Should be >1e5 (ambient pressure is 101325"
+        #potential temperature literature vals taken from https://tinyurl.com/thetavals
+        assert 260<self.theta_z0<265, "ERROR. potential temperature at z_0 is not valid."
+        assert 260<self.theta_10<265, "ERROR. potential temperature at 10m is not valid."
+        #humidity calculator results given by http://www.humcal.com/index.php
+        assert isclose(1.83e-3,self.h_s_z0,abs_tol=0.05e-3), "ERROR. specific humidity at z0 is incorrect."
+        assert isclose(1.83e-3,self.h_s_10,abs_tol=0.05e-3), "ERROR. specific humidity at z0 is incorrect."
+        #atmospheric humidity decreases with altitude...
+        assert self.h_s_z0>self.h_s_10, "ERROR: humidity should decrease with altitude!"
+        print("All tests passed!")
+
+my_H_s = np.linspace(0.3,4.0,50)  
+my_D_s = np.linspace(30.0,500.0,50)
+testice = ice(A,my_H_s,my_D_s,0.16e-3,0.0061,263.65)
 testice.display()
+testice.testfun()
 testice.plot_3d()
