@@ -141,9 +141,7 @@ class ice:
             c_l = c_s
         return c_d, c_s, c_l
         
-    def __init__(self,A,H_s,D_s,z_0a,z_0w,T_z0):
-        #ice concentration
-        self.A = A
+    def __init__(self,H_s,D_s,z_0a,z_0w,T_z0):
         #sail height
         self.H_s = H_s
         #distance between sails
@@ -196,22 +194,22 @@ class ice:
         #first momentum transfer coefficient
         self.momentum_sail = self.C_dar_fun(self.x_s,self.y_s,self.z_0a) + self.C_das_fun(self.x_s,self.y_s)
         self.momentum_keel = self.C_dwr_fun(self.x_k,self.y_k,self.z_0w) + self.C_dws_fun(self.x_k,self.y_k)
-        self.c_d_a, foo, bar = self.iterdrag(self.momentum_sail) 
+        self.momentum_sail, foo, bar = self.iterdrag(self.momentum_sail) 
 
         #now heat transfer coefficient
         #roughness length for heat transfer is 0.2* (source: UM documentation)
         self.heat_sail = self.C_dar_fun(self.x_s,self.y_s,0.2*self.z_0a) + self.C_das_fun(self.x_s,self.y_s)
         self.heat_keel = self.C_dwr_fun(self.x_k,self.y_k,0.2*self.z_0w) + self.C_dws_fun(self.x_k,self.y_k)
-        foo, self.c_s_a, bar = self.iterdrag(self.heat_sail) 
+        foo, self.heat_sail, bar = self.iterdrag(self.heat_sail) 
  
     def plot_3d(self):
         #function to plot 3d surface of dependence of drag coefficient on height of sails and distance between sails
         #printing min, max, default
         print("Atmospheric momentum:")
-        print("min {}\n max {}\n default {}".format(np.min(self.c_d_a),np.max(self.c_d_a),self.C_d_atmosphere_default))
-        cp = plt.contourf(self.x_s,self.y_s,self.c_d_a,levels=np.linspace(0,np.max(self.c_d_a),100))
+        print("min {}\n max {}\n default {}".format(np.min(self.momentum_sail),np.max(self.momentum_sail),self.C_d_atmosphere_default))
+        cp = plt.contourf(self.x_s,self.y_s,self.momentum_sail,levels=np.linspace(0,np.max(self.momentum_sail),100))
         plt.colorbar(cp)
-        cp.set_clim(0,np.max(self.c_d_a))
+        cp.set_clim(0,np.max(self.momentum_sail))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
         plt.title("Atmospheric drag coeff. {} default. {} aice".format(self.C_d_atmosphere_default,A))
@@ -246,10 +244,10 @@ class ice:
         
         ###PLOTTING ATMOSPHERIC HEAT TRANSFER###
         print("Atmospheric heat:")
-        print("min {}\n max {}\n default {}".format(np.min(self.c_s_a),np.max(self.c_s_a),self.C_s_atmosphere_default))
-        cp = plt.contourf(self.x_s,self.y_s,self.c_s_a,levels=np.linspace(0,np.max(np.abs(self.c_s_a))),cmap='inferno')
+        print("min {}\n max {}\n default {}".format(np.min(self.heat_sail),np.max(self.heat_sail),self.C_s_atmosphere_default))
+        cp = plt.contourf(self.x_s,self.y_s,self.heat_sail,levels=np.linspace(0,np.max(np.abs(self.heat_sail))),cmap='inferno')
         plt.colorbar(cp)
-        cp.set_clim(0,np.max(self.c_s_a))
+        cp.set_clim(0,np.max(self.heat_sail))
         plt.xlabel("Height of sails(m)")
         plt.ylabel("Distance between sails(m)")
         plt.title("Atmospheric heat transfer coeff. {} default. {} aice".format(self.C_s_atmosphere_default,A))
@@ -268,7 +266,6 @@ class ice:
         #this function tests the calculated properties of the sea ice to check that they are realistic...
         #basing these tests on expected values for these parameters as laid out in Tsamados paper (cited in report...)
         print("Beginning tests.")
-        assert self.A>0, "ERROR. A>0 must hold. (There must be some ice)..."
         assert np.min(self.H_s)>0,"ERROR. Sails must have a height..."
         assert np.max(self.H_s)<5,"ERROR. Sails are too tall!"        
         assert np.min(self.D_s)>20,"ERROR. Sails are too close together!"
@@ -286,11 +283,13 @@ class ice:
         assert isclose(1.83e-3,self.h_s_10,abs_tol=0.05e-3), "ERROR. specific humidity at z0 is incorrect."
         #atmospheric humidity decreases with altitude...
         assert self.h_s_z0>self.h_s_10, "ERROR: humidity should decrease with altitude!"
+        assert np.mean(self.momentum_keel) > np.mean(self.momentum_sail), "Oceanic drag coefficient should be large than atmospheric (source: Tsamados)"
+        assert np.mean(self.heat_keel) > np.mean(self.heat_sail), "Oceanic heat transfer should be larger than atmospheric (source: Tsamados)"
         print("All tests passed!")
 
 my_H_s = np.linspace(0.3,4.0,50)  
 my_D_s = np.linspace(30.0,500.0,50)
-testice = ice(A,my_H_s,my_D_s,0.16e-3,0.0061,263.65)
+testice = ice(my_H_s,my_D_s,0.16e-3,0.0061,263.65)
 testice.display()
 testice.testfun()
 testice.plot_3d()

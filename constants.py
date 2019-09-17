@@ -1,6 +1,7 @@
 import numpy as np
 
 # Defining constants 
+
 #gravity at the poles (m s^(-2))
 g = 9.832
 #Ratio of keel depth and sail height (Worby (2008))
@@ -20,7 +21,7 @@ alpha_k = 0.45
 s_l = 0.18 
 #Ice concentration (fraction of 1.0)
 #Get input from user
-A = float(input("Input ice concentration: "))
+A = 0.5
 #Sail height(m) (Worby (2008)) 
 H_s = 0.57 
 #height of keel

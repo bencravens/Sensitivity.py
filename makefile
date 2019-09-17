@@ -1,5 +1,9 @@
 all:
-	@rm output.txt	
-	@echo "enter desired sea ice concentration"
-	@python3 toy_system.py >> output.txt
-	@okular *.png &
+	@python3 toy_system.py
+plot:
+    @python3 toy_system.py
+    @okular *.png
+log:
+    @rm output.txt 
+    @python3 toy_system.py >> output.txt
+
